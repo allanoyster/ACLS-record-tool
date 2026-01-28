@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2025 ACLS 專業紀錄助手</title>
+    <style>
+        :root {
+            --primary-blue: #d9edf7;
+            --shock-red: #d9534f;
+            --text-dark: #333;
+            --bg-gray: #f4f7f6;
+            --border-blue: #31708f;
+            --rosc-green: #28a745;
+            --shock-gold: #ffc107;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-gray);
+            margin: 0; padding: 15px;
+            display: flex; flex-direction: column; align-items: center;
+        }
+
+        .container { max-width: 600px; width: 100%; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        h1 { text-align: center; color: var(--border-blue); font-size: 22px; margin-bottom: 20px; }
+
+        /* 計時器區域 */
+        .timer-section {
+            background: #fff5f5; border: 2px solid var(--shock-red);
+            border-radius: 10px; padding: 15px; text-align: center; margin-bottom: 20px;
+        }
+        .timer-display { font-size: 3.5rem; font-weight: bold; color: var(--shock-red); font-family: monospace; }
+        .timer-label { font-size: 14px; color: #666; font-weight: bold; }
+
+        /* 按鈕樣式 */
+        .btn {
+            width: 100%; padding: 15px; margin: 8px 0; border: none; border-radius: 8px;
+            font-size: 18px; font-weight: bold; cursor: pointer; transition: 0.2s;
+        }
+        .btn:active { transform: scale(0.96); }
+        
+        .btn-start { background: var(--shock-red); color: white; }
+        .btn-shock { background: var(--shock-gold); color: #000; border: 2px solid #e0a800; }
+        .btn-drug { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .btn-action { background: #e2e3e5; color: #383d41; }
+        .btn-rosc { background: var(--rosc-green); color: white; margin-top: 15px; }
+        
+        /* 彈窗樣式 (共用) */
+        .modal {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); z-index: 1000; flex-direction: column;
+            justify-content: center; align-items: center; padding: 20px;
+        }
+        .modal-content {
+            background: white; width: 100%; max-width: 400px; padding: 25px;
+            border-radius: 15px; text-align: center;
+        }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+        /* 紀錄區 */
+        .log-container {
+            margin-top: 20px; border-top: 2px solid #eee; padding-top: 10px;
+            max-height: 250px; overflow-y: auto; background: #fafafa; border-radius: 5px;
+        }
+        .log-entry { font-size: 13px; padding: 6px 10px; border-bottom: 1px solid #eee; display: flex; }
+        .timestamp { font-weight: bold; color: var(--border-blue); margin-right: 10px; min-width: 70px; }
+        .log-shock { color: #d9534f; font-weight: bold; border-left: 4px solid #d9534f; padding-left: 6px; }
+
+        #main-ui { display: none; }
+    </style>
+</head>
+<body>
+
+    <div id="check-modal" class="modal">
+        <div class="modal-content">
+            <h2 style="color:var(--shock-red)">⚠️ 2分鐘時間到！</h2>
+            <p>請分析並記錄當前節律：</p>
+            <div class="grid-2">
+                <button class="btn btn-start" onclick="openShockModal()">VF</button>
+                <button class="btn btn-start" onclick="openShockModal()">pVT</button>
+                <button class="btn btn-action" onclick="recordRhythmAndStart('PEA')">PEA</button>
+                <button class="btn btn-action" onclick="recordRhythmAndStart('Asystole')">Asystole</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="shock-modal" class="modal">
+        <div class="modal-content">
+            <h2 style="color:var(--shock-gold)">⚡ 確認電擊節律</h2>
+            <p>準備進行電擊，請選擇心律：</p>
+            <div class="grid-2">
+                <button class="btn btn-start" onclick="executeShock('VF')">VF</button>
+                <button class="btn btn-start" onclick="executeShock('pVT')">pVT</button>
+            </div>
+            <button class="btn btn-action" onclick="closeShockModal()">取消</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <h1>2025 ACLS 互動紀錄助手</h1>
+
+        <div id="start-screen">
+            <button class="btn btn-start" onclick="initACLS()">🔴 病人 Pulseless (開始急救)</button>
+        </div>
+
+        <div id="main-ui">
+            <div class="timer-section">
+                <div class="timer-label">CPR 循環倒計時</div>
+                <div class="timer-display" id="cpr-timer">02:00</div>
+            </div>
+            
+            <div class="grid-2">
+                <button class="btn btn-shock" style="grid-column: span 2; font-size: 22px;" onclick="openShockModal()">⚡ SHOCK 電擊</button>
+                
+                <button class="btn btn-drug" onclick="recordMed('Epinephrine', '1mg')">💉 Epi 1mg</button>
+                <button class="btn btn-drug" onclick="recordMed('Amiodarone', '300mg')">💊 Amio 300</button>
+                <button class="btn btn-drug" onclick="recordMed('Amiodarone', '150mg')">💊 Amio 150</button>
+                <button class="btn btn-drug" onclick="recordMed('Lidocaine', '1-1.5 mg/kg')">💊 Lidocaine</button>
+                <button class="btn btn-action" onclick="recordAction('Advanced Airway')">管 插管完成</button>
+                <button class="btn btn-action" onclick="resetManual()">🔄 手動重置計時</button>
+            </div>
+            
+            <button class="btn btn-rosc" onclick="recordROSC()">🌟 ROSC (恢復自發循環)</button>
+        </div>
+
+        <div class="log-container" id="event-log">
+            <div class="log-entry">等待啟動...</div>
+        </div>
+    </div>
+
+    <script>
+        let cprInterval;
+        let timeLeft = 120;
+        let shockCount = 0;
+        let cycleCount = 0;
+
+        function formatTime() {
+            const now = new Date();
+            return now.getHours().toString().padStart(2, '0') + ":" + 
+                   now.getMinutes().toString().padStart(2, '0') + ":" + 
+                   now.getSeconds().toString().padStart(2, '0');
+        }
+
+        function logEvent(msg, isShock = false) {
+            const logBox = document.getElementById('event-log');
+            if (logBox.innerText.includes("等待啟動")) logBox.innerHTML = "";
+            const div = document.createElement('div');
+            div.className = 'log-entry' + (isShock ? ' log-shock' : '');
+            div.innerHTML = `<span class="timestamp">${formatTime()}</span> <span>${msg}</span>`;
+            logBox.prepend(div);
+        }
+
+        function initACLS() {
+            document.getElementById('start-screen').style.display = 'none';
+            document.getElementById('main-ui').style.display = 'block';
+            logEvent("🛑 急救開始 (Pulseless)");
+            startNewCycle();
+        }
+
+        function startNewCycle() {
+            cycleCount++;
+            timeLeft = 120;
+            clearInterval(cprInterval);
+            updateTimerDisplay();
+            
+            cprInterval = setInterval(() => {
+                timeLeft--;
+                updateTimerDisplay();
+                if (timeLeft <= 0) {
+                    clearInterval(cprInterval);
+                    document.getElementById('check-modal').style.display = 'flex';
+                }
+            }, 1000);
+            logEvent(`⏱️ 第 ${cycleCount} 個 2分鐘 CPR 循環開始`);
+        }
+
+        // 處理非電擊節律
+        function recordRhythmAndStart(rhythm) {
+            logEvent(`🔍 節律分析: ${rhythm}`);
+            document.getElementById('check-modal').style.display = 'none';
+            startNewCycle();
+        }
+
+        // 開啟電擊選擇視窗
+        function openShockModal() {
+            document.getElementById('check-modal').style.display = 'none';
+            document.getElementById('shock-modal').style.display = 'flex';
+        }
+
+        function closeShockModal() {
+            document.getElementById('shock-modal').style.display = 'none';
+        }
+
+        // 執行電擊並記錄
+        function executeShock(rhythm) {
+            shockCount++;
+            logEvent(`⚡ 第 ${shockCount} 次電擊 (節律: ${rhythm})`, true);
+            closeShockModal();
+            startNewCycle(); // 電擊後立即重啟 2 分鐘計時
+        }
+
+        function updateTimerDisplay() {
+            const mins = Math.floor(timeLeft / 60);
+            const secs = timeLeft % 60;
+            document.getElementById('cpr-timer').innerText = 
+                `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function recordMed(name, dose) {
+            logEvent(`💉 給藥: ${name} (${dose})`);
+        }
+
+        function recordAction(action) {
+            logEvent(`🛠️ 執行操作: ${action}`);
+        }
+
+        function resetManual() {
+            if(confirm("確定要手動重置 2 分鐘計時嗎？")) { startNewCycle(); }
+        }
+
+        function recordROSC() {
+            clearInterval(cprInterval);
+            logEvent("🌟 [ROSC] 恢復自發循環！停止計時。");
+            alert("已記錄 ROSC。");
+        }
+    </script>
+</body>
+</html>

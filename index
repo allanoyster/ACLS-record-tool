@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ACLS 2025 紀錄助手</title>
+    <style>
+        :root {
+            --shock-red: #d9534f;
+            --shock-gold: #ffc107;
+            --pea-blue: #31708f;
+            --bg-gray: #f8f9fa;
+            --text-dark: #212529;
+            --drug-green: #28a745;
+        }
+
+        body {
+            font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-gray);
+            color: var(--text-dark);
+            margin: 0; padding: env(safe-area-inset-top) 10px 20px 10px;
+            display: flex; flex-direction: column; align-items: center;
+        }
+
+        .container { max-width: 500px; width: 100%; }
+        h1 { font-size: 1.4rem; text-align: center; color: var(--pea-blue); margin: 15px 0; }
+
+        /* 計時器區域 */
+        .timer-card {
+            background: white; border: 3px solid var(--shock-red); border-radius: 15px;
+            padding: 20px; text-align: center; margin-bottom: 15px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .timer-display { font-size: 4rem; font-weight: 800; font-family: 'Courier New', monospace; color: var(--shock-red); }
+        .timer-label { font-size: 0.9rem; font-weight: bold; color: #666; }
+
+        /* 按鈕矩陣 */
+        .grid-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .btn {
+            border: none; border-radius: 10px; padding: 18px 10px;
+            font-size: 1.1rem; font-weight: bold; cursor: pointer; transition: 0.1s;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .btn:active { transform: scale(0.95); opacity: 0.8; }
+
+        .btn-start { background: var(--shock-red); color: white; width: 100%; padding: 30px; font-size: 1.5rem; }
+        .btn-shock { background: var(--shock-gold); color: black; grid-column: span 2; font-size: 1.4rem; border: 2px solid #e0a800; }
+        .btn-drug { background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
+        .btn-action { background: #e9ecef; color: #495057; }
+        .btn-rosc { background: var(--drug-green); color: white; grid-column: span 2; margin-top: 10px; }
+
+        /* 彈窗 */
+        .modal {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); z-index: 9999; justify-content: center; align-items: center;
+        }
+        .modal-content { background: white; width: 85%; max-width: 350px; padding: 25px; border-radius: 20px; text-align: center; }
+
+        /* 紀錄區 */
+        .log-area {
+            margin-top: 20px; background: white; border-radius: 10px; 
+            height: 200px; overflow-y: auto; border: 1px solid #ddd;
+        }
+        .log-entry { font-size: 0.85rem; padding: 8px 12px; border-bottom: 1px solid #eee; display: flex; }
+        .log-time { font-weight: bold; color: var(--pea-blue); margin-right: 10px; }
+        .log-msg-shock { color: var(--shock-red); font-weight: bold; }
+
+        #main-ui { display: none; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>ACLS 2025 智慧紀錄</h1>
+
+        <div id="start-screen">
+            <button class="btn btn-start" onclick="startEmergency()">🔴 PULSELESS<br><small>開始急救紀錄</small></button>
+        </div>
+
+        <div id="main-ui">
+            <div class="timer-card">
+                <div class="timer-label">CPR 循環倒數 (2分鐘)</div>
+                <div id="timer" class="timer-display">02:00</div>
+            </div>
+
+            <div class="grid-buttons">
+                <button class="btn btn-shock" onclick="triggerShockFlow()">⚡ SHOCK 電擊</button>
+
+                <button class="btn btn-drug" onclick="logMed('Epinephrine 1mg')">💉 Epi 1mg</button>
+                <button class="btn btn-drug" onclick="logMed('Amiodarone 300mg')">💊 Amio 300</button>
+                <button class="btn btn-drug" onclick="logMed('Amiodarone 150mg')">💊 Amio 150</button>
+                <button class="btn btn-drug" onclick="logMed('Lidocaine 1-1.5mg/kg')">💊 Lido</button>
+                <button class="btn btn-action" onclick="logAction('Advanced Airway 插管完成')">管 ET Tube</button>
+                <button class="btn btn-action" onclick="manualReset()">🔄 手動重置</button>
+
+                <button class="btn btn-rosc" onclick="handleROSC()">🌟 ROSC 成功</button>
+            </div>
+
+            <div class="log-area" id="log">
+                <div class="log-entry">等待操作...</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="rhythm-modal" class="modal">
+        <div class="modal-content">
+            <h2 style="color:var(--shock-red)">⚠️ 2分鐘時間到</h2>
+            <p>請確認當前心律：</p>
+            <div class="grid-buttons">
+                <button class="btn btn-shock" style="grid-column: span 1;" onclick="triggerShockFlow()">VF</button>
+                <button class="btn btn-shock" style="grid-column: span 1;" onclick="triggerShockFlow()">pVT</button>
+                <button class="btn btn-action" onclick="logRhythm('PEA')">PEA</button>
+                <button class="btn btn-action" onclick="logRhythm('Asystole')">Asystole</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="shock-confirm-modal" class="modal">
+        <div class="modal-content">
+            <h2 style="color:var(--shock-gold)">⚡ 電擊節律確認</h2>
+            <p>紀錄電擊前，請選擇心律：</p>
+            <div class="grid-buttons">
+                <button class="btn btn-start" style="background:var(--shock-gold); color:black;" onclick="executeShock('VF')">VF</button>
+                <button class="btn btn-start" style="background:var(--shock-gold); color:black;" onclick="executeShock('pVT')">pVT</button>
+            </div>
+            <br>
+            <button class="btn btn-action" style="width:100%" onclick="closeModals()">取消</button>
+        </div>
+    </div>
+
+    <script>
+        let timerSeconds = 120;
+        let timerInterval;
+        let shockCount = 0;
+
+        function getTime() {
+            return new Date().toLocaleTimeString('zh-TW', { hour12: false });
+        }
+
+        function addLog(msg, type = '') {
+            const logBox = document.getElementById('log');
+            if (logBox.innerHTML.includes("等待操作")) logBox.innerHTML = "";
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.innerHTML = `<span class="log-time">${getTime()}</span><span>${msg}</span>`;
+            logBox.prepend(entry);
+        }
+
+        function startEmergency() {
+            document.getElementById('start-screen').style.display = 'none';
+            document.getElementById('main-ui').style.display = 'block';
+            addLog("🛑 急救啟動 (Pulseless)");
+            startTimer();
+        }
+
+        function startTimer() {
+            clearInterval(timerInterval);
+            timerSeconds = 120;
+            updateDisplay();
+            timerInterval = setInterval(() => {
+                timerSeconds--;
+                updateDisplay();
+                if (timerSeconds <= 0) {
+                    clearInterval(timerInterval);
+                    document.getElementById('rhythm-modal').style.display = 'flex';
+                }
+            }, 1000);
+        }
+
+        function updateDisplay() {
+            const m = Math.floor(timerSeconds / 60).toString().padStart(2, '0');
+            const s = (timerSeconds % 60).toString().padStart(2, '0');
+            document.getElementById('timer').innerText = `${m}:${s}`;
+        }
+
+        // 電擊流程
+        function triggerShockFlow() {
+            closeModals();
+            document.getElementById('shock-confirm-modal').style.display = 'flex';
+        }
+
+        function executeShock(rhythm) {
+            shockCount++;
+            addLog(`⚡ 第 ${shockCount} 次電擊 (節律: ${rhythm})`, 'log-msg-shock');
+            closeModals();
+            startTimer(); // 電擊後立即進入下一個 2 分鐘
+        }
+
+        // 紀錄非電擊節律
+        function logRhythm(rhythm) {
+            addLog(`🔍 節律分析: ${rhythm}`);
+            closeModals();
+            startTimer();
+        }
+
+        function logMed(name) { addLog(`💉 給藥: ${name}`); }
+        function logAction(act) { addLog(`🛠️ 動作: ${act}`); }
+
+        function handleROSC() {
+            clearInterval(timerInterval);
+            addLog("🌟 ROSC！恢復自發循環", 'log-msg-shock');
+            alert("已記錄 ROSC，計時停止。");
+        }
+
+        function manualReset() {
+            if(confirm("確定重置 2 分鐘循環？")) startTimer();
+        }
+
+        function closeModals() {
+            document.getElementById('rhythm-modal').style.display = 'none';
+            document.getElementById('shock-confirm-modal').style.display = 'none';
+        }
+    </script>
+</body>
+</html>
